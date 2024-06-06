@@ -1,0 +1,3 @@
+some test text to be encrypted
+
+here is 2 new line characters and imports a fake password to protect: TheDayIMadeAPassword12345
