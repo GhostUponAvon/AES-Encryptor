@@ -1,19 +1,19 @@
-use std::{env, fs, process};
+use std::{env, fs, process, thread, sync::{Mutex, Arc}};
 use sha256::digest;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    /*
+    
     if args.len() != 3 {
         println!("The needs to be exactly 2 arguments, you have too few or too much");
         process::exit(1)
-    }*/
+    }
 
     let file_bytes = fs::read(&args[1]).expect("Cannot find the specified file. Please check the file name and path.");
     let password = digest(&args[2]);
 
-    let mut encrypted_blocks: Vec<String> = Vec::new();
-    let blocks: Vec<Vec<u8>> = input_to_blocks(file_bytes);
+    
+    let blocks: Vec<Vec<u8>> = input_to_blocks(file_bytes); //each vector stores 16 u8's
 
     //let keys: Vec<Vec<u8>> = generate_keys(password, blocks.len());
 
@@ -33,6 +33,35 @@ fn main() {
 
 
 }
+
+fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
+    let mut encrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::with_capacity(blocks.len()))); // this will allow the threads to each work on an encryption block independently and return the value without conflicts
+    let mut keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
+
+    for (i, block) in blocks.iter().enumerate() {
+        let block = block.clone(); // Find a better way than cloning the block to move the data into the thread
+        let key: Vec<Vec<u8>> = keys.split_off(keys.len()-9);
+        let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
+        thread::spawn(move || {
+            let id: usize = i;
+            let block: Vec<u8> = block;
+            let keys: Vec<Vec<u8>> = key;
+
+            //do some encryption work here
+        });
+    }
+    let data = encrypted_blocks.lock().unwrap();// find way to retrieve computed data from arc mutex
+
+    todo!()
+}
+//function will largely be a copy of the encryption function instead using the inverses of each encryption stage.
+fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<String> {
+    todo!()
+}
+
+
+
+
 
 fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
     let mut blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
@@ -77,3 +106,13 @@ const S_BOX: [[u8; 16]; 16] = [
 [0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e],
 [0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf],
 [0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16]];
+
+
+fn add_round_key(key: Vec<u8>, data: Vec<u8>) -> Vec<u8> {todo!()}
+
+fn sub_bytes(data: Vec<u8>) -> Vec<u8>{todo!()}
+
+fn shift_rows(data: Vec<u8>) -> Vec<u8> {todo!()}
+
+fn mix_columns(data: Vec<u8>) -> Vec<u8> {todo!()}
+
