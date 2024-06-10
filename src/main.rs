@@ -1,4 +1,4 @@
-use std::{env, fs, process, thread, sync::{Mutex, Arc}};
+use std::{env, fs, process, sync::{Arc, Mutex}, thread, time::Duration};
 use sha256::digest;
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,7 +10,7 @@ fn main() {
     }
 
     let file_bytes = fs::read(&args[1]).expect("Cannot find the specified file. Please check the file name and path.");
-    let password = digest(&args[2]);
+    let password: String = digest(&args[2]);
 
     
     let blocks: Vec<Vec<u8>> = input_to_blocks(file_bytes); //each vector stores 16 u8's
@@ -40,14 +40,36 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
 
     for (i, block) in blocks.iter().enumerate() {
         let block = block.clone(); // Find a better way than cloning the block to move the data into the thread
-        let key: Vec<Vec<u8>> = keys.split_off(keys.len()-9);
+        let key: Vec<Vec<u8>> = keys.split_off(keys.len()-16);
         let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
         thread::spawn(move || {
             let id: usize = i;
-            let block: Vec<u8> = block;
+            let mut block: Vec<u8> = block;
             let keys: Vec<Vec<u8>> = key;
 
-            //do some encryption work here
+            //initial add round key
+            block = add_round_key(keys[0].clone(), block);
+
+            for round in 0..13 {
+                block = add_round_key(keys[round+1].clone(), mix_columns(shift_rows(sub_bytes(block))));
+            }
+
+            //final round minus the mix columns operation
+            block = add_round_key(keys[14].clone(), shift_rows(sub_bytes(block)));
+
+            loop {
+                let mut data = encrypted_blocks_ref.lock().unwrap();
+                if data.len() == id {
+                    data.push(block.clone());
+                    break
+                } else {
+                    drop(data);
+                    thread::sleep(Duration::from_secs(2))
+                }
+            }
+
+
+            
         });
     }
     let data = encrypted_blocks.lock().unwrap();// find way to retrieve computed data from arc mutex
@@ -58,9 +80,6 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
 fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<String> {
     todo!()
 }
-
-
-
 
 
 fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
@@ -74,19 +93,27 @@ fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
 }
 
 fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>> {
-    let password: Vec<u8> = password_hash.into_bytes();
+    let mut keys: Vec<Vec<u8>> = Vec::with_capacity(block_vec_length*14);
 
-    let mut keys: Vec<Vec<u8>> = Vec::with_capacity(block_vec_length*14); keys.push(password);
+    let mut c_key: Vec<u8> = password_hash.into_bytes();
 
-    for i in 0..block_vec_length*14 {
-        todo!()
+    for _ in 0..block_vec_length*15 {
+        keys.push(c_key.clone());
+
+        let mut n_key: Vec<Vec<u8>> = c_key.chunks(32).map(|x| x.to_owned()).collect();
+        
+        //do initial xor
+        n_key[0] = xor_word(n_key[0].clone(), rcon(sub_word(rot_word(n_key[7].clone()))));
+
+        //then use loop to do remainder
+        for i in 0..n_key.len() {
+            n_key[i+1] = xor_word(n_key[i+1].clone(), n_key[i].clone());
+        }
+        c_key = n_key.concat();
+
     }
 
-    keys
-
-    
-
-    
+    keys   
 }
 
 const S_BOX: [[u8; 16]; 16] = [
@@ -115,4 +142,12 @@ fn sub_bytes(data: Vec<u8>) -> Vec<u8>{todo!()}
 fn shift_rows(data: Vec<u8>) -> Vec<u8> {todo!()}
 
 fn mix_columns(data: Vec<u8>) -> Vec<u8> {todo!()}
+
+fn rot_word(data: Vec<u8>) -> Vec<u8> {todo!()}
+
+fn sub_word(data: Vec<u8>) -> Vec<u8> {todo!()}
+
+fn rcon(data: Vec<u8>) -> Vec<u8> {todo!()}
+
+fn xor_word(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {todo!()}
 
