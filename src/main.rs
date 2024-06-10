@@ -18,8 +18,14 @@ fn main() {
     //let keys: Vec<Vec<u8>> = generate_keys(password, blocks.len());
 
 
+    
+    println!("Starting multi-threaded encryption");
 
-    println!("{:?}", blocks);
+    let encrypted_blocks: Vec<u8> = encrypt(blocks, password).concat();
+
+    let path: String = args[1].clone()+".aes";
+
+    fs::write(path, encrypted_blocks).expect("Failed to write encrypted file to filesystem")
     
     /*
     let num: u16 = 0b0110111101101011;
@@ -39,8 +45,9 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
     let mut keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
 
     for (i, block) in blocks.iter().enumerate() {
+        //println!("spawning new thread");
         let block = block.clone(); // Find a better way than cloning the block to move the data into the thread
-        let key: Vec<Vec<u8>> = keys.split_off(keys.len()-16);
+        let key: Vec<Vec<u8>> = keys.split_off(keys.len()-15);
         let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
         let instance = thread::spawn(move || {
             let id: usize = i;
@@ -64,7 +71,7 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
                     break
                 } else {
                     drop(data);
-                    thread::sleep(Duration::from_secs(2))
+                    thread::sleep(Duration::from_millis(4))
                 }
             }
             drop(encrypted_blocks_ref);
@@ -96,21 +103,22 @@ fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
 }
 
 fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>> {
-    let mut keys: Vec<Vec<u8>> = Vec::with_capacity(block_vec_length*14);
+    let mut keys: Vec<Vec<u8>> = Vec::with_capacity(block_vec_length*15);
 
     let mut c_key: Vec<u8> = password_hash.into_bytes();
 
-    for _ in 0..block_vec_length*15 {
+    for k in 0..block_vec_length*15 {
+        //println!("generated key");
         keys.push(c_key.clone());
 
-        let mut n_key: Vec<Vec<u8>> = c_key.chunks(32).map(|x| x.to_owned()).collect();
+        let mut n_key: Vec<Vec<u8>> = c_key.chunks(8).map(|x| x.to_owned()).collect();
         
         //do initial xor
         n_key[0] = xor_word(n_key[0].clone(), rcon(sub_word(rot_word(n_key[7].clone()))));
 
         //then use loop to do remainder
-        for i in 0..n_key.len() {
-            n_key[i+1] = xor_word(n_key[i+1].clone(), n_key[i].clone());
+        for i in 1..n_key.len() {
+            n_key[i] = xor_word(n_key[i].clone(), n_key[i-1].clone());
         }
         c_key = n_key.concat();
 
@@ -138,19 +146,45 @@ const S_BOX: [[u8; 16]; 16] = [
 [0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16]];
 
 
-fn add_round_key(key: Vec<u8>, data: Vec<u8>) -> Vec<u8> {todo!()}
+fn add_round_key(key: Vec<u8>, data: Vec<u8>) -> Vec<u8> {
+    let mut xor_result: Vec<u8> = Vec::with_capacity(32);
+    for (a, b) in data.iter().zip(key) {
+        xor_result.push(a^b);
+    }
+    xor_result
+}
 
-fn sub_bytes(data: Vec<u8>) -> Vec<u8>{todo!()}
+fn sub_bytes(data: Vec<u8>) -> Vec<u8>{
+    let mut sub_result: Vec<u8> = Vec::with_capacity(16);
+    for byte in data {
+        let nibble_a:usize = (byte >> 4) as usize;
+        let nibble_b:usize = (byte & 0x0f) as usize;
+        sub_result.push(S_BOX[nibble_a][nibble_b].clone());
+    }
+    sub_result
+}
 
-fn shift_rows(data: Vec<u8>) -> Vec<u8> {todo!()}
+fn shift_rows(data: Vec<u8>) -> Vec<u8> {
+    let mut rows: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+    for (i, row) in rows.iter_mut().enumerate() {
+        row.rotate_left(i);
+    }
+    rows.concat()
+}
 
-fn mix_columns(data: Vec<u8>) -> Vec<u8> {todo!()}
+fn mix_columns(data: Vec<u8>) -> Vec<u8> {data}
 
-fn rot_word(data: Vec<u8>) -> Vec<u8> {todo!()}
+fn rot_word(data: Vec<u8>) -> Vec<u8> {data}
 
-fn sub_word(data: Vec<u8>) -> Vec<u8> {todo!()}
+fn sub_word(data: Vec<u8>) -> Vec<u8> {data}
 
-fn rcon(data: Vec<u8>) -> Vec<u8> {todo!()}
+fn rcon(data: Vec<u8>) -> Vec<u8> {data}
 
-fn xor_word(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {todo!()}
+fn xor_word(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {
+    let mut xor_result: Vec<u8> = Vec::with_capacity(32);
+    for (a, b) in a.iter().zip(b) {
+        xor_result.push(a^b);
+    }
+    xor_result
+}
 
