@@ -42,7 +42,7 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
         let block = block.clone(); // Find a better way than cloning the block to move the data into the thread
         let key: Vec<Vec<u8>> = keys.split_off(keys.len()-16);
         let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
-        thread::spawn(move || {
+        let instance = thread::spawn(move || {
             let id: usize = i;
             let mut block: Vec<u8> = block;
             let keys: Vec<Vec<u8>> = key;
@@ -67,15 +67,18 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
                     thread::sleep(Duration::from_secs(2))
                 }
             }
+            drop(encrypted_blocks_ref);
 
 
             
         });
+        instance.join().expect("Failed to join a thread back to the main thread")
     }
-    let data = encrypted_blocks.lock().unwrap();// find way to retrieve computed data from arc mutex
-
-    todo!()
+    let data = Arc::try_unwrap(encrypted_blocks).expect("Arc still has owners").into_inner().expect("Cannot retrieve data from Mutex");
+    data
 }
+
+
 //function will largely be a copy of the encryption function instead using the inverses of each encryption stage.
 fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<String> {
     todo!()
