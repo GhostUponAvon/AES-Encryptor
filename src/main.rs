@@ -1,6 +1,12 @@
-use std::{env, fs, process, sync::{Arc, Mutex}, thread, time::Duration};
+use std::{env, fs, io::Write, process, sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex}, thread, time::Duration};
 use sha256::digest;
+
+static GLOBAL_THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
+static GLOBAL_ENCRYPTION_STATUS: AtomicUsize = AtomicUsize::new(1);
+static THREAD_POOL: usize = 1000;
+
 fn main() {
+    let t = std::time::Instant::now();
     let args: Vec<String> = env::args().collect();
 
     
@@ -15,17 +21,17 @@ fn main() {
     
     let blocks: Vec<Vec<u8>> = input_to_blocks(file_bytes); //each vector stores 16 u8's
 
-    //let keys: Vec<Vec<u8>> = generate_keys(password, blocks.len());
+    
 
 
     
     println!("Starting multi-threaded encryption");
 
-    let encrypted_blocks: Vec<u8> = encrypt(blocks, password).concat();
+    let encrypted_blocks: Vec<u8> = encrypt(blocks, password);
 
     let path: String = args[1].clone()+".aes";
 
-    fs::write(path, encrypted_blocks).expect("Failed to write encrypted file to filesystem")
+    fs::write(path, encrypted_blocks).expect("Failed to write encrypted file to filesystem");
     
     /*
     let num: u16 = 0b0110111101101011;
@@ -36,20 +42,30 @@ fn main() {
     println!("{}", num & 0xff);
     */
 
-
+    let elapsed = t.elapsed();
+    println!("\nCompleted in: {:.5?}", elapsed)
 
 }
 
-fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
+fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     let mut encrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::with_capacity(blocks.len()))); // this will allow the threads to each work on an encryption block independently and return the value without conflicts
     let mut keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
+    let mut stdout = std::io::stdout();
+    let length = blocks.len();
 
     for (i, block) in blocks.iter().enumerate() {
-        //println!("spawning new thread");
+        
+        while GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) == THREAD_POOL {
+            thread::sleep(Duration::from_micros(1));
+        }
+
+
         let block = block.clone(); // Find a better way than cloning the block to move the data into the thread
         let key: Vec<Vec<u8>> = keys.split_off(keys.len()-15);
         let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
-        let instance = thread::spawn(move || {
+        
+        GLOBAL_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
+        thread::spawn(move || {
             let id: usize = i;
             let mut block: Vec<u8> = block;
             let keys: Vec<Vec<u8>> = key;
@@ -65,24 +81,29 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<Vec<u8>> {
             block = add_round_key(keys[14].clone(), shift_rows(sub_bytes(block)));
 
             loop {
-                let mut data = encrypted_blocks_ref.lock().unwrap();
-                if data.len() == id {
+                
+                if GLOBAL_ENCRYPTION_STATUS.load(Ordering::SeqCst) == id+1 {
+                    let mut data = encrypted_blocks_ref.lock().unwrap();
                     data.push(block.clone());
+                    GLOBAL_ENCRYPTION_STATUS.fetch_add(1, Ordering::SeqCst);
                     break
-                } else {
-                    drop(data);
-                    thread::sleep(Duration::from_millis(4))
                 }
             }
-            drop(encrypted_blocks_ref);
-
-
             
+
+
+            GLOBAL_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
         });
-        instance.join().expect("Failed to join a thread back to the main thread")
+        //instance.join().expect("Failed to join a thread back to the main thread")
+        if GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) != 0 {
+            print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS, length);
+            let _ = stdout.flush();
+            thread::sleep(Duration::from_micros(1))
+        }
     }
-    let data = Arc::try_unwrap(encrypted_blocks).expect("Arc still has owners").into_inner().expect("Cannot retrieve data from Mutex");
-    data
+    
+    let data = Arc::try_unwrap(encrypted_blocks).expect("Arc still has owners").into_inner().expect("Cannot retrieve data from Mutex").clone();
+    data.concat()
 }
 
 
@@ -103,13 +124,25 @@ fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
 }
 
 fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>> {
-    let mut keys: Vec<Vec<u8>> = Vec::with_capacity(block_vec_length*15);
-
+    let mut stdout = std::io::stdout();
+    let keys: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::with_capacity(block_vec_length*15)));
+    static KEY_GEN_STATUS: AtomicUsize = AtomicUsize::new(0);
     let mut c_key: Vec<u8> = password_hash.into_bytes();
-
-    for k in 0..block_vec_length*15 {
-        //println!("generated key");
-        keys.push(c_key.clone());
+    
+    let key_space = block_vec_length*8;
+    let keys_thread_ref = Arc::clone(&keys);
+    thread::spawn(move || {
+        
+    for k in 0..block_vec_length*8 {
+        let mut keys = keys_thread_ref.lock().unwrap();
+        let mut left = c_key.clone();
+        let right = left.split_off(16);
+        keys.push(left);keys.push(right);
+        KEY_GEN_STATUS.fetch_add(1, Ordering::SeqCst);
+        
+        if keys.len() == block_vec_length*15 {
+            break;
+        }
 
         let mut n_key: Vec<Vec<u8>> = c_key.chunks(8).map(|x| x.to_owned()).collect();
         
@@ -122,9 +155,23 @@ fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>>
         }
         c_key = n_key.concat();
 
-    }
 
-    keys   
+    }
+    drop(keys_thread_ref);
+});
+    
+        while KEY_GEN_STATUS.load(Ordering::SeqCst) != key_space {
+            print!("\rGenerating Keys: {}/{}", KEY_GEN_STATUS.load(Ordering::SeqCst), key_space);
+            let _ = stdout.flush();
+            thread::sleep(Duration::from_micros(1))
+    }
+    
+    
+    println!("");
+
+    let keys = Arc::try_unwrap(keys).expect("Arc is still owned").into_inner().expect("failed to extract generated keys from Mutex");
+    //keys
+    keys
 }
 
 const S_BOX: [[u8; 16]; 16] = [
@@ -164,6 +211,7 @@ fn sub_bytes(data: Vec<u8>) -> Vec<u8>{
     sub_result
 }
 
+//this function is implemented wrong it needs to be fixed
 fn shift_rows(data: Vec<u8>) -> Vec<u8> {
     let mut rows: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
     for (i, row) in rows.iter_mut().enumerate() {
