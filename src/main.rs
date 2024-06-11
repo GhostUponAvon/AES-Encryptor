@@ -1,9 +1,10 @@
 use std::{env, fs, io::Write, process, sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex}, thread, time::Duration};
 use sha256::digest;
+use rayon::prelude::*;
 
-static GLOBAL_THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 static GLOBAL_ENCRYPTION_STATUS: AtomicUsize = AtomicUsize::new(1);
-static THREAD_POOL: usize = 1000;
+
 
 fn main() {
     let t = std::time::Instant::now();
@@ -48,73 +49,54 @@ fn main() {
 }
 
 fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
-    let mut encrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::with_capacity(blocks.len()))); // this will allow the threads to each work on an encryption block independently and return the value without conflicts
-    let mut keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
+    let keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
+    //let length = blocks.len();
+    let encrypted_blocks: Vec<Vec<u8>> = blocks;//Vec::with_capacity(blocks.len()); // this will allow the threads to each work on an encryption block independently and return the value without conflicts
+    
     let mut stdout = std::io::stdout();
-    let length = blocks.len();
+    
+    let keys: Vec<Vec<Vec<u8>>> = keys.chunks(15).map(|x| x.to_owned()).collect();
+    print!("\rEncrypting Blocks...");
+    let _ = stdout.flush();
+    let encrypted_blocks: Vec<Vec<u8>> = encrypted_blocks.par_iter().zip(keys).map(|(block, keys)| encrypt_block(block, keys)).collect();
+    print!("\rBlocks Encrypted    ");
+    let _ = stdout.flush();
+    //this will get reimplemented in future to monitor the above rayon crate instruction
+    /*while GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) != 0 {
+        print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS, length);
+        let _ = stdout.flush();
+        thread::sleep(Duration::from_micros(1))
+    }*/
+    
+    encrypted_blocks.concat()
+}
 
-    for (i, block) in blocks.iter().enumerate() {
-        
-        while GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) == THREAD_POOL {
-            thread::sleep(Duration::from_micros(1));
-        }
+fn encrypt_block(block: &Vec<u8>, keys: Vec<Vec<u8>>) -> Vec<u8> {
+    //initial add round key
+    let mut block = block.clone();
+    block = add_round_key(keys[0].clone(), block);
 
-
-        let block = block.clone(); // Find a better way than cloning the block to move the data into the thread
-        let key: Vec<Vec<u8>> = keys.split_off(keys.len()-15);
-        let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
-        
-        GLOBAL_THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
-        thread::spawn(move || {
-            let id: usize = i;
-            let mut block: Vec<u8> = block;
-            let keys: Vec<Vec<u8>> = key;
-
-            //initial add round key
-            block = add_round_key(keys[0].clone(), block);
-
-            for round in 0..13 {
-                block = add_round_key(keys[round+1].clone(), mix_columns(shift_rows(sub_bytes(block))));
-            }
-
-            //final round minus the mix columns operation
-            block = add_round_key(keys[14].clone(), shift_rows(sub_bytes(block)));
-
-            loop {
-                
-                if GLOBAL_ENCRYPTION_STATUS.load(Ordering::SeqCst) == id+1 {
-                    let mut data = encrypted_blocks_ref.lock().unwrap();
-                    data.push(block.clone());
-                    GLOBAL_ENCRYPTION_STATUS.fetch_add(1, Ordering::SeqCst);
-                    break
-                }
-            }
-            
-
-
-            GLOBAL_THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
-        });
-        //instance.join().expect("Failed to join a thread back to the main thread")
-        if GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) != 0 {
-            print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS, length);
-            let _ = stdout.flush();
-            thread::sleep(Duration::from_micros(1))
-        }
+    for round in 0..13 {
+        block = add_round_key(keys[round+1].clone(), mix_columns(shift_rows(sub_bytes(block))));
     }
     
-    let data = Arc::try_unwrap(encrypted_blocks).expect("Arc still has owners").into_inner().expect("Cannot retrieve data from Mutex").clone();
-    data.concat()
+    //final round minus the mix columns operation
+    block = add_round_key(keys[14].clone(), shift_rows(sub_bytes(block)));
+
+    GLOBAL_ENCRYPTION_STATUS.fetch_add(1, Ordering::SeqCst);
+    
+    block
 }
 
 
 //function will largely be a copy of the encryption function instead using the inverses of each encryption stage.
-fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<String> {
+fn _decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<String> {
     todo!()
 }
 
 
 fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
-    let mut blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
+    let blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
     
     /*for chunk in file_bytes.chunks(32).collect() {
         blocks.push(chunk.to_owned());
@@ -133,25 +115,26 @@ fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>>
     let keys_thread_ref = Arc::clone(&keys);
     thread::spawn(move || {
         
-    for k in 0..block_vec_length*8 {
+    for _k in 0..block_vec_length*8 {
         let mut keys = keys_thread_ref.lock().unwrap();
         let mut left = c_key.clone();
         let right = left.split_off(16);
         keys.push(left);keys.push(right);
         KEY_GEN_STATUS.fetch_add(1, Ordering::SeqCst);
         
-        if keys.len() == block_vec_length*15 {
+        if keys.len() == block_vec_length*16 {
             break;
         }
 
         let mut n_key: Vec<Vec<u8>> = c_key.chunks(8).map(|x| x.to_owned()).collect();
         
         //do initial xor
-        n_key[0] = xor_word(n_key[0].clone(), rcon(sub_word(rot_word(n_key[7].clone()))));
+        n_key[0] = xor_word(&n_key[0], &rcon(sub_word(rot_word(&n_key[7]))));
 
         //then use loop to do remainder
+        //NOTE: this is wrong, the vector is XORing itself, it should be XORing c_key
         for i in 1..n_key.len() {
-            n_key[i] = xor_word(n_key[i].clone(), n_key[i-1].clone());
+            n_key[i] = xor_word(&n_key[i], &n_key[i-1]);
         }
         c_key = n_key.concat();
 
@@ -160,10 +143,10 @@ fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>>
     drop(keys_thread_ref);
 });
     
-        while KEY_GEN_STATUS.load(Ordering::SeqCst) != key_space {
-            print!("\rGenerating Keys: {}/{}", KEY_GEN_STATUS.load(Ordering::SeqCst), key_space);
-            let _ = stdout.flush();
-            thread::sleep(Duration::from_micros(1))
+    while KEY_GEN_STATUS.load(Ordering::SeqCst) != key_space {
+        print!("\rGenerating Keys: {}/{}", KEY_GEN_STATUS.load(Ordering::SeqCst), key_space);
+        let _ = stdout.flush();
+        thread::sleep(Duration::from_micros(1))
     }
     
     
@@ -222,13 +205,13 @@ fn shift_rows(data: Vec<u8>) -> Vec<u8> {
 
 fn mix_columns(data: Vec<u8>) -> Vec<u8> {data}
 
-fn rot_word(data: Vec<u8>) -> Vec<u8> {data}
+fn rot_word(data: &Vec<u8>) -> Vec<u8> {data.clone()}
 
 fn sub_word(data: Vec<u8>) -> Vec<u8> {data}
 
 fn rcon(data: Vec<u8>) -> Vec<u8> {data}
 
-fn xor_word(a: Vec<u8>, b: Vec<u8>) -> Vec<u8> {
+fn xor_word(a: &Vec<u8>, b: &Vec<u8>) -> Vec<u8> {
     let mut xor_result: Vec<u8> = Vec::with_capacity(32);
     for (a, b) in a.iter().zip(b) {
         xor_result.push(a^b);
