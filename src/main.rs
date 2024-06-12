@@ -10,28 +10,22 @@ fn main() {
     let t = std::time::Instant::now();
     let args: Vec<String> = env::args().collect();
 
-    
     if args.len() != 3 {
         println!("The needs to be exactly 2 arguments, you have too few or too much");
         process::exit(1)
     }
 
     let file_bytes = fs::read(&args[1]).expect("Cannot find the specified file. Please check the file name and path.");
-    let password: String = digest(&args[2]);
-
     
+    let password: String = digest(&args[2]);
     let blocks: Vec<Vec<u8>> = input_to_blocks(file_bytes); //each vector stores 16 u8's
 
-    
 
-
-    
     println!("Starting multi-threaded encryption");
 
     let encrypted_blocks: Vec<u8> = encrypt(blocks, password);
 
     let path: String = args[1].clone()+".aes";
-
     fs::write(path, encrypted_blocks).expect("Failed to write encrypted file to filesystem");
     
     /*
@@ -43,13 +37,15 @@ fn main() {
     println!("{}", num & 0xff);
     */
 
-    let elapsed = t.elapsed();
-    println!("\nCompleted in: {:.5?}", elapsed)
+    println!("\nCompleted in: {:.5?}", t.elapsed())
 
 }
 
 fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     let keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
+    if contains_duplicates(&keys) {
+        println!("Warning! Key Schedule generated duplicate keys");
+    }
     //let length = blocks.len();
     let encrypted_blocks: Vec<Vec<u8>> = blocks;//Vec::with_capacity(blocks.len()); // this will allow the threads to each work on an encryption block independently and return the value without conflicts
     
@@ -69,6 +65,29 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     }*/
     
     encrypted_blocks.concat()
+}
+
+fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
+    'outer: for k in 0..keys.len() {
+        for i in 0..keys.len() {
+            if keys[k] == keys[i+2] {
+                println!("duplicate for key {} found at index {}",k , i);
+                break 'outer;
+                
+            }
+        }
+    }
+    if (0..keys.len()).any(|x| {
+        if keys[x..].contains(&keys[x]) {
+            true
+        } else {
+            false
+        }
+    
+    }) {
+        return true
+    }
+    false
 }
 
 fn encrypt_block(block: &Vec<u8>, keys: Vec<Vec<u8>>) -> Vec<u8> {
@@ -105,12 +124,13 @@ fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
     blocks
 }
 
+//something is wrong with the key generation algorithm and the count of key generation
 fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>> {
     let mut stdout = std::io::stdout();
     let keys: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::with_capacity(block_vec_length*15)));
     static KEY_GEN_STATUS: AtomicUsize = AtomicUsize::new(0);
     let mut c_key: Vec<u8> = password_hash.into_bytes();
-    
+    println!("{}", block_vec_length);
     let key_space = block_vec_length*8;
     let keys_thread_ref = Arc::clone(&keys);
     thread::spawn(move || {
@@ -174,7 +194,6 @@ const S_BOX: [[u8; 16]; 16] = [
 [0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e],
 [0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf],
 [0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16]];
-
 
 fn add_round_key(key: Vec<u8>, data: Vec<u8>) -> Vec<u8> {
     let mut xor_result: Vec<u8> = Vec::with_capacity(32);
