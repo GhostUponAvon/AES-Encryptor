@@ -11,7 +11,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 3 {
-        println!("The needs to be exactly 2 arguments, you have too few or too much");
+        println!("There needs to be exactly 2 arguments, you have too few or too much");
         process::exit(1)
     }
 
@@ -42,19 +42,21 @@ fn main() {
 }
 
 fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
-    let keys: Vec<Vec<u8>> = generate_keys(password_hash, blocks.len());
+    let keys: Vec<Vec<u8>> = generate_keys(password_hash);
+    
+    
     if contains_duplicates(&keys) {
         println!("Warning! Key Schedule generated duplicate keys");
     }
     //let length = blocks.len();
-    let encrypted_blocks: Vec<Vec<u8>> = blocks;//Vec::with_capacity(blocks.len()); // this will allow the threads to each work on an encryption block independently and return the value without conflicts
+    let encrypted_blocks: Vec<Vec<u8>> = blocks; // this will allow the threads to each work on an encryption block independently and return the value without conflicts
     
     let mut stdout = std::io::stdout();
     
-    let keys: Vec<Vec<Vec<u8>>> = keys.chunks(15).map(|x| x.to_owned()).collect();
+    //let keys: Vec<Vec<Vec<u8>>> = keys.chunks(15).map(|x| x.to_owned()).collect();
     print!("\rEncrypting Blocks...");
     let _ = stdout.flush();
-    let encrypted_blocks: Vec<Vec<u8>> = encrypted_blocks.par_iter().zip(keys).map(|(block, keys)| encrypt_block(block, keys)).collect();
+    let encrypted_blocks: Vec<Vec<u8>> = encrypted_blocks.par_iter().map(|block| encrypt_block(block, &keys)).collect();
     print!("\rBlocks Encrypted    ");
     let _ = stdout.flush();
     //this will get reimplemented in future to monitor the above rayon crate instruction
@@ -70,7 +72,8 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
 fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
     'outer: for k in 0..keys.len() {
         for i in 0..keys.len() {
-            if keys[k] == keys[i+2] {
+            if k==i {continue;}
+            if keys[k] == keys[i] {
                 println!("duplicate for key {} found at index {}",k , i);
                 break 'outer;
                 
@@ -79,6 +82,7 @@ fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
     }
     if (0..keys.len()).any(|x| {
         if keys[x..].contains(&keys[x]) {
+            println!("dup at index: {}", x);
             true
         } else {
             false
@@ -90,11 +94,13 @@ fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
     false
 }
 
-fn encrypt_block(block: &Vec<u8>, keys: Vec<Vec<u8>>) -> Vec<u8> {
+fn encrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
     //initial add round key
+
     let mut block = block.clone();
     block = add_round_key(keys[0].clone(), block);
 
+    //start index at 1 not 0 and remove the addition operation below.
     for round in 0..13 {
         block = add_round_key(keys[round+1].clone(), mix_columns(shift_rows(sub_bytes(block))));
     }
@@ -124,56 +130,41 @@ fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
     blocks
 }
 
-//something is wrong with the key generation algorithm and the count of key generation
-fn generate_keys(password_hash: String, block_vec_length: usize) -> Vec<Vec<u8>> {
-    let mut stdout = std::io::stdout();
-    let keys: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::with_capacity(block_vec_length*15)));
-    static KEY_GEN_STATUS: AtomicUsize = AtomicUsize::new(0);
-    let mut c_key: Vec<u8> = password_hash.into_bytes();
-    println!("{}", block_vec_length);
-    let key_space = block_vec_length*8;
-    let keys_thread_ref = Arc::clone(&keys);
-    thread::spawn(move || {
+fn generate_keys(password_hash: String) -> Vec<Vec<u8>> {
+    let mut current_key: Vec<u8> = password_hash.into_bytes();
+
+    let mut keys: Vec<Vec<u8>> = Vec::new();
+    for _k in 0..8 {
         
-    for _k in 0..block_vec_length*8 {
-        let mut keys = keys_thread_ref.lock().unwrap();
-        let mut left = c_key.clone();
+        let mut left = current_key.clone();
         let right = left.split_off(16);
         keys.push(left);keys.push(right);
-        KEY_GEN_STATUS.fetch_add(1, Ordering::SeqCst);
         
-        if keys.len() == block_vec_length*16 {
+        if keys.len() == 16 {
             break;
         }
 
-        let mut n_key: Vec<Vec<u8>> = c_key.chunks(8).map(|x| x.to_owned()).collect();
+        //break the key into 8 columns
+        let mut n_key: Vec<Vec<u8>> = current_key.chunks(8).map(|x| x.to_owned()).collect();
         
         //do initial xor
         n_key[0] = xor_word(&n_key[0], &rcon(sub_word(rot_word(&n_key[7]))));
 
-        //then use loop to do remainder
-        //NOTE: this is wrong, the vector is XORing itself, it should be XORing c_key
-        for i in 1..n_key.len() {
+        //then use loop to do the rest
+        for i in 1..8 {
             n_key[i] = xor_word(&n_key[i], &n_key[i-1]);
         }
-        c_key = n_key.concat();
+        current_key = n_key.concat();
 
 
     }
-    drop(keys_thread_ref);
-});
     
-    while KEY_GEN_STATUS.load(Ordering::SeqCst) != key_space {
-        print!("\rGenerating Keys: {}/{}", KEY_GEN_STATUS.load(Ordering::SeqCst), key_space);
-        let _ = stdout.flush();
-        thread::sleep(Duration::from_micros(1))
-    }
+    
     
     
     println!("");
 
-    let keys = Arc::try_unwrap(keys).expect("Arc is still owned").into_inner().expect("failed to extract generated keys from Mutex");
-    //keys
+    
     keys
 }
 
@@ -226,14 +217,22 @@ fn mix_columns(data: Vec<u8>) -> Vec<u8> {data}
 
 fn rot_word(data: &Vec<u8>) -> Vec<u8> {data.clone()}
 
-fn sub_word(data: Vec<u8>) -> Vec<u8> {data}
+fn sub_word(mut data: Vec<u8>) -> Vec<u8> {
+
+    for byte in data.iter_mut() {
+        let nibble_a:usize = (*byte >> 4) as usize;
+        let nibble_b:usize = (*byte & 0x0f) as usize;
+        *byte = S_BOX[nibble_a][nibble_b].clone();
+    }
+    data
+}
 
 fn rcon(data: Vec<u8>) -> Vec<u8> {data}
 
 fn xor_word(a: &Vec<u8>, b: &Vec<u8>) -> Vec<u8> {
     let mut xor_result: Vec<u8> = Vec::with_capacity(32);
-    for (a, b) in a.iter().zip(b) {
-        xor_result.push(a^b);
+    for (c, d) in a.iter().zip(b) {
+        xor_result.push(c^d);
     }
     xor_result
 }
