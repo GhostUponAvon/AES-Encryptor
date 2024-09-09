@@ -46,7 +46,7 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     
     
     if contains_duplicates(&keys) {
-        println!("Warning! Key Schedule generated duplicate keys");
+        //println!("Warning! Key Schedule generated duplicate keys");
     }
     //let length = blocks.len();
     let encrypted_blocks: Vec<Vec<u8>> = blocks; // this will allow the threads to each work on an encryption block independently and return the value without conflicts
@@ -74,7 +74,7 @@ fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
         for i in 0..keys.len() {
             if k==i {continue;}
             if keys[k] == keys[i] {
-                println!("duplicate for key {} found at index {}",k , i);
+                //println!("duplicate for key {} found at index {}",k , i);
                 break 'outer;
                 
             }
@@ -82,7 +82,7 @@ fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
     }
     if (0..keys.len()).any(|x| {
         if keys[x..].contains(&keys[x]) {
-            println!("dup at index: {}", x);
+            //println!("dup at index: {}", x);
             true
         } else {
             false
@@ -100,7 +100,7 @@ fn encrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
     let mut block = block.clone();
     block = add_round_key(keys[0].clone(), block);
 
-    //start index at 1 not 0 and remove the addition operation below.
+    //round 2 to 14 
     for round in 0..13 {
         block = add_round_key(keys[round+1].clone(), mix_columns(shift_rows(sub_bytes(block))));
     }
@@ -162,8 +162,6 @@ fn generate_keys(password_hash: String) -> Vec<Vec<u8>> {
     
     
     
-    println!("");
-
     
     keys
 }
