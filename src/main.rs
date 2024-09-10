@@ -193,7 +193,7 @@ fn add_round_key(key: Vec<u8>, data: Vec<u8>) -> Vec<u8> {
 }
 
 fn sub_bytes(data: Vec<u8>) -> Vec<u8>{
-    let mut sub_result: Vec<u8> = Vec::with_capacity(16);
+    let mut sub_result: Vec<u8> = Vec::with_capacity(8);
     for byte in data {
         let nibble_a:usize = (byte >> 4) as usize;
         let nibble_b:usize = (byte & 0x0f) as usize;
@@ -228,10 +228,31 @@ fn sub_word(mut data: Vec<u8>) -> Vec<u8> {
 fn rcon(data: Vec<u8>) -> Vec<u8> {data}
 
 fn xor_word(a: &Vec<u8>, b: &Vec<u8>) -> Vec<u8> {
-    let mut xor_result: Vec<u8> = Vec::with_capacity(32);
+    let mut xor_result: Vec<u8> = Vec::with_capacity(8);
     for (c, d) in a.iter().zip(b) {
         xor_result.push(c^d);
     }
     xor_result
 }
 
+
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_xor_word() {
+        let vec_a: Vec<u8> = vec![0xFF; 8];
+        let vec_b: Vec<u8> = vec![0xFF, 0x00, 0xFF, 0x00,0xFF, 0x00,0xFF, 0x00,0xFF, 0x00];
+        assert_eq!(xor_word(&vec_a, &vec_b), vec![ 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0xFF ])
+    }
+
+    #[test]
+    fn test_sub_word() {
+        let vec_a: Vec<u8> = vec![ 0xff, 0x65, 0xc7, 0xcc, 0x00, 0x7a, 0x5b, 0xbf];
+        assert_eq!(sub_word(vec_a.clone()), vec![0x16, 0x4d, 0xc6, 0x4b, 0x63, 0xda, 0x39, 0x08]);
+    }
+}
