@@ -43,56 +43,36 @@ fn main() {
 
 fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     let keys: Vec<Vec<u8>> = generate_keys(password_hash);
-    
-    
-    if contains_duplicates(&keys) {
-        //println!("Warning! Key Schedule generated duplicate keys");
-    }
+    let encrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
     //let length = blocks.len();
-    let encrypted_blocks: Vec<Vec<u8>> = blocks; // this will allow the threads to each work on an encryption block independently and return the value without conflicts
+    //let encrypted_blocks: Vec<Vec<u8>> = blocks; // this will allow the threads to each work on an encryption block independently and return the value without conflicts
     
     let mut stdout = std::io::stdout();
+    let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
+    println!("\rEncrypting Blocks...");
+    //let _ = stdout.flush();
+    let handle = thread::spawn(move || {
+        let mut encrypted_blocks = encrypted_blocks_ref.lock().unwrap();
+        *encrypted_blocks = blocks.par_iter().map(|block| encrypt_block(block, &keys)).collect();
+    });
     
-    //let keys: Vec<Vec<Vec<u8>>> = keys.chunks(15).map(|x| x.to_owned()).collect();
-    print!("\rEncrypting Blocks...");
-    let _ = stdout.flush();
-    let encrypted_blocks: Vec<Vec<u8>> = encrypted_blocks.par_iter().map(|block| encrypt_block(block, &keys)).collect();
-    print!("\rBlocks Encrypted    ");
-    let _ = stdout.flush();
-    //this will get reimplemented in future to monitor the above rayon crate instruction
+    
+    
+    //print!("\rBlocks Encrypted    ");
+    //let _ = stdout.flush();
+    
+    
+    //this will get reimplemented in future to monitor the above rayon instruction
     /*while GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) != 0 {
         print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS, length);
         let _ = stdout.flush();
         thread::sleep(Duration::from_micros(1))
     }*/
     
-    encrypted_blocks.concat()
+    let blocks = Arc::try_unwrap(encrypted_blocks).expect("").into_inner().expect("").concat();
+    blocks
 }
 
-fn contains_duplicates(keys: &Vec<Vec<u8>>) -> bool {
-    'outer: for k in 0..keys.len() {
-        for i in 0..keys.len() {
-            if k==i {continue;}
-            if keys[k] == keys[i] {
-                //println!("duplicate for key {} found at index {}",k , i);
-                break 'outer;
-                
-            }
-        }
-    }
-    if (0..keys.len()).any(|x| {
-        if keys[x..].contains(&keys[x]) {
-            //println!("dup at index: {}", x);
-            true
-        } else {
-            false
-        }
-    
-    }) {
-        return true
-    }
-    false
-}
 
 fn encrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
     //initial add round key
