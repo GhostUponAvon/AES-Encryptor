@@ -1,6 +1,8 @@
 # AES-encryptor
 A simple command line tool that lets anyone encrypt files using AES-256
 
+Usage: aes-encrytor.exe [file] [password]
+
 PLEASE NOTE:
 1. The tool is in the pre-alpha phase
 2. The tool has note yet fully implemented the AES cipher.

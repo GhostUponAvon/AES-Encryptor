@@ -44,30 +44,24 @@ fn main() {
 fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     let keys: Vec<Vec<u8>> = generate_keys(password_hash);
     let encrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
-    //let length = blocks.len();
-    //let encrypted_blocks: Vec<Vec<u8>> = blocks; // this will allow the threads to each work on an encryption block independently and return the value without conflicts
+    let length = blocks.len();
     
     let mut stdout = std::io::stdout();
     let encrypted_blocks_ref = Arc::clone(&encrypted_blocks);
     println!("\rEncrypting Blocks...");
-    //let _ = stdout.flush();
+
     let handle = thread::spawn(move || {
         let mut encrypted_blocks = encrypted_blocks_ref.lock().unwrap();
         *encrypted_blocks = blocks.par_iter().map(|block| encrypt_block(block, &keys)).collect();
     });
     
     
-    
-    //print!("\rBlocks Encrypted    ");
-    //let _ = stdout.flush();
-    
-    
     //this will get reimplemented in future to monitor the above rayon instruction
-    /*while GLOBAL_THREAD_COUNT.load(Ordering::SeqCst) != 0 {
-        print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS, length);
+    while !handle.is_finished() {
+        print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS.load(Ordering::SeqCst)-1, length);
         let _ = stdout.flush();
         thread::sleep(Duration::from_micros(1))
-    }*/
+    }
     
     let blocks = Arc::try_unwrap(encrypted_blocks).expect("").into_inner().expect("").concat();
     blocks
