@@ -76,7 +76,7 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     blocks
 }
 
-//Encrypting tracking counter isn't working for smaller files
+//Encryption tracking counter isn't working for smaller files
 fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     let mut keys: Vec<Vec<u8>> = generate_keys(password_hash); keys.pop(); keys.reverse();
     let decrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
@@ -319,6 +319,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_encrypt_decrypt() {
+        let plaintext = vec![vec![0xFF, 0x00, 0xFF, 0x00,0xFF, 0x00,0xFF, 0x00,0xFF, 0x00, 0xFF, 0x00, 0xFF, 0x00,0xFF, 0x00]];
+        let password = sha256::digest("test");
+
+        assert_eq!(plaintext.concat(), decrypt(encrypt(plaintext, password.clone()).chunks(16).map(|x| x.to_owned()).collect(), password))
+    }
+
+    #[test]
     fn test_xor_word() {
         let vec_a: Vec<u8> = vec![0xFF; 8];
         let vec_b: Vec<u8> = vec![0xFF, 0x00, 0xFF, 0x00,0xFF, 0x00,0xFF, 0x00,0xFF, 0x00];
@@ -329,5 +337,11 @@ mod tests {
     fn test_sub_word() {
         let vec_a: Vec<u8> = vec![ 0xff, 0x65, 0xc7, 0xcc, 0x00, 0x7a, 0x5b, 0xbf];
         assert_eq!(sub_word(vec_a.clone()), vec![0x16, 0x4d, 0xc6, 0x4b, 0x63, 0xda, 0x39, 0x08]);
+    }
+
+    #[test]
+    fn test_inv_sub_word() {
+        let vec_a: Vec<u8> = vec![0x16, 0x4d, 0xc6, 0x4b, 0x63, 0xda, 0x39, 0x08];
+        assert_eq!(inv_sub_word(vec_a.clone()), vec![ 0xff, 0x65, 0xc7, 0xcc, 0x00, 0x7a, 0x5b, 0xbf]);
     }
 }
