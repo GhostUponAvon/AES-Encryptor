@@ -8,3 +8,14 @@ edition = "2021"
 [dependencies]
 rayon = "1.10.0"
 sha256 = "1.5.0"
+
+
+#may include further options for a smaller binary in future
+[profile.opt-size]
+debug = false
+inherits = "release"
+opt-level = 'z'
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true
