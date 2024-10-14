@@ -131,7 +131,7 @@ fn decrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
     block = inv_sub_bytes(inv_shift_rows(add_round_key(keys[0].clone(), block)));
     //round 2 to 14 
     for round in 0..13 {
-        block = inv_sub_bytes(inv_shift_rows(mix_columns(add_round_key(keys[round+1].clone(), block))));
+        block = inv_sub_bytes(inv_shift_rows(inv_mix_columns(add_round_key(keys[round+1].clone(), block))));
     }
     
     //final round minus the mix columns operation
@@ -144,8 +144,13 @@ fn decrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
 
 
 fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
-    let blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
-    
+    let mut blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
+    if blocks[blocks.len()-1].len() < 16 {
+        let mut block = blocks[blocks.len()-1].clone();
+        block.append(&mut vec![0;16-blocks[blocks.len()-1].len()]);
+        blocks.pop();
+        blocks.push(block);
+    } 
     /*for chunk in file_bytes.chunks(32).collect() {
         blocks.push(chunk.to_owned());
     }*/
@@ -275,8 +280,42 @@ fn inv_shift_rows(data: Vec<u8>) -> Vec<u8> {
     }
     rows.concat()
 }
+/*
+fn galois_multiplication(byte: u8) -> u8 {
+    if (byte & 0x80) != 0 {
+        ((byte << 1) ^ 0x1b) & 0xff
+    } else {
+        byte << 1
+    }
+}
 
-fn mix_columns(data: Vec<u8>) -> Vec<u8> {data}
+fn mix_columns(data: Vec<u8>) -> Vec<u8> {
+    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+    for (_i, column) in data.iter_mut().enumerate() {
+        let t = column[0] ^ column[1] ^ column[2] ^ column[3];
+        let u = column[0];
+        column[0] ^= t ^ galois_multiplication(column[0] ^ column[1]);
+        column[1] ^= t ^ galois_multiplication(column[1] ^ column[2]);
+        column[2] ^= t ^ galois_multiplication(column[2] ^ column[3]);
+        column[3] ^= t ^ galois_multiplication(column[3] ^ u);
+
+    }
+
+    data.concat()
+}
+
+fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
+    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+    for i in 0..4 {
+        let u = galois_multiplication(galois_multiplication(data[i][0] ^ data[i][2]));
+        let v = galois_multiplication(galois_multiplication(data[i][1] ^ data[i][3]));
+        data[i][0] ^= u;
+        data[i][1] ^= v;
+        data[i][2] ^= u;
+        data[i][3] ^= v;
+    }
+    mix_columns(data.concat())
+}*/
 
 fn rot_word(data: &Vec<u8>) -> Vec<u8> {data.clone()}
 
@@ -338,6 +377,19 @@ mod tests {
         let vec_a: Vec<u8> = vec![ 0xff, 0x65, 0xc7, 0xcc, 0x00, 0x7a, 0x5b, 0xbf];
         assert_eq!(sub_word(vec_a.clone()), vec![0x16, 0x4d, 0xc6, 0x4b, 0x63, 0xda, 0x39, 0x08]);
     }
+
+    #[test]
+    fn test_mix_columns() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc];
+        assert_eq!(mix_columns(vec_a.clone()), vec![65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59]);
+    }
+    
+    #[test]
+    fn test_inv_mix_columns() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc];
+        assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc]);
+    }
+
 
     #[test]
     fn test_inv_sub_word() {
