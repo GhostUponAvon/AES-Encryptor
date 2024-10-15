@@ -145,12 +145,6 @@ fn decrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
 
 fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
     let mut blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
-    if blocks[blocks.len()-1].len() < 16 {
-        let mut block = blocks[blocks.len()-1].clone();
-        block.append(&mut vec![0;16-blocks[blocks.len()-1].len()]);
-        blocks.pop();
-        blocks.push(block);
-    } 
     /*for chunk in file_bytes.chunks(32).collect() {
         blocks.push(chunk.to_owned());
     }*/
@@ -280,6 +274,113 @@ fn inv_shift_rows(data: Vec<u8>) -> Vec<u8> {
     }
     rows.concat()
 }
+
+fn g_mul(mut a: u8, mut b: u8) -> u8 {
+    let mut p: u8 = 0;
+
+    for _i in 0..8 {
+       if (b & 1) != 0 {
+           p ^= a;
+       }
+
+       let hi_bit_set: bool = (a & 0x80) != 0;
+       a <<= 1;
+       if hi_bit_set {
+           a ^= 0x1b;
+       }
+       b >>= 1;
+    }
+    p
+}
+
+fn mix_columns(data: Vec<u8>) -> Vec<u8> {
+    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; 4];
+    let mut pad: usize = 0;
+    for (i, column) in data.iter_mut().enumerate() {
+        if column.len() < 4 {
+            pad = column.len();
+            let mut padding: Vec<u8> = vec![0; 4-pad];
+            column.append(&mut padding);
+        }
+
+        match pad {
+            3 => {
+                mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]) ^ g_mul(0x01, column[2]);
+                mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]) ^ g_mul(0x03, column[2]);
+                mixed_data[i][2] = g_mul(0x01, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x02, column[2]);
+
+            },
+            2 => {
+                mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]);
+                mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]);
+
+            },
+            1 => {
+                mixed_data[i][0] = g_mul(0x02, column[0]);
+
+            },
+            _ => {
+                mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x01, column[3]);
+                mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]) ^ g_mul(0x03, column[2]) ^ g_mul(0x01, column[3]);
+                mixed_data[i][2] = g_mul(0x01, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x02, column[2]) ^ g_mul(0x03, column[3]);
+                mixed_data[i][3] = g_mul(0x03, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x02, column[3]);
+
+            }
+        }
+
+        if pad > 0 {
+            mixed_data[i].truncate(pad);
+        }
+    }
+
+    mixed_data.concat()
+}
+
+fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
+    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; 4];
+    let mut pad: usize = 0;
+    for (i, column) in data.iter_mut().enumerate() {
+        if column.len() < 4 {
+            pad = column.len();
+            let mut padding: Vec<u8> = vec![0; 4-pad];
+            column.append(&mut padding);
+        }
+
+
+        match pad {
+            3 => {
+                mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]) ^ g_mul(0x0d, column[2]);
+                mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]) ^ g_mul(0x0b, column[2]);
+                mixed_data[i][2] = g_mul(0x0d, column[0]) ^ g_mul(0x09, column[1]) ^ g_mul(0x0e, column[2]);
+
+            },
+            2 => {
+                mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]);
+                mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]);
+
+            },
+            1 => {
+                mixed_data[i][0] = g_mul(0x0e, column[0]);
+
+            },
+            _ => {
+                mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]) ^ g_mul(0x0d, column[2]) ^ g_mul(0x09, column[3]);
+                mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]) ^ g_mul(0x0b, column[2]) ^ g_mul(0x0d, column[3]);
+                mixed_data[i][2] = g_mul(0x0d, column[0]) ^ g_mul(0x09, column[1]) ^ g_mul(0x0e, column[2]) ^ g_mul(0x0b, column[3]);
+                mixed_data[i][3] = g_mul(0x0b, column[0]) ^ g_mul(0x0d, column[1]) ^ g_mul(0x09, column[2]) ^ g_mul(0x0e, column[3]);
+            }
+        }
+
+        if pad > 0 {
+            mixed_data[i].truncate(pad);
+        }
+    }
+
+    mixed_data.concat()
+}
+
 /*
 fn galois_multiplication(byte: u8) -> u8 {
     if (byte & 0x80) != 0 {
@@ -388,6 +489,12 @@ mod tests {
     fn test_inv_mix_columns() {
         let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc];
         assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc]);
+    }
+
+    #[test]
+    fn test_inv_mix_columns_shortened() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65];
+        assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65]);
     }
 
 
