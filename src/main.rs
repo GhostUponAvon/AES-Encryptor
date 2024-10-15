@@ -379,43 +379,6 @@ fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
     mixed_data.concat()
 }
 
-/*
-fn galois_multiplication(byte: u8) -> u8 {
-    if (byte & 0x80) != 0 {
-        ((byte << 1) ^ 0x1b) & 0xff
-    } else {
-        byte << 1
-    }
-}
-
-fn mix_columns(data: Vec<u8>) -> Vec<u8> {
-    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
-    for (_i, column) in data.iter_mut().enumerate() {
-        let t = column[0] ^ column[1] ^ column[2] ^ column[3];
-        let u = column[0];
-        column[0] ^= t ^ galois_multiplication(column[0] ^ column[1]);
-        column[1] ^= t ^ galois_multiplication(column[1] ^ column[2]);
-        column[2] ^= t ^ galois_multiplication(column[2] ^ column[3]);
-        column[3] ^= t ^ galois_multiplication(column[3] ^ u);
-
-    }
-
-    data.concat()
-}
-
-fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
-    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
-    for i in 0..4 {
-        let u = galois_multiplication(galois_multiplication(data[i][0] ^ data[i][2]));
-        let v = galois_multiplication(galois_multiplication(data[i][1] ^ data[i][3]));
-        data[i][0] ^= u;
-        data[i][1] ^= v;
-        data[i][2] ^= u;
-        data[i][3] ^= v;
-    }
-    mix_columns(data.concat())
-}*/
-
 fn rot_word(mut data: Vec<u8>) -> Vec<u8> {
     data.rotate_left(1);
     data
