@@ -71,6 +71,8 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
         let _ = stdout.flush();
         thread::sleep(Duration::from_micros(1))
     }
+    print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS.load(Ordering::SeqCst)-1, length);
+    let _ = stdout.flush();
     
     let blocks = Arc::try_unwrap(encrypted_blocks).expect("").into_inner().expect("").concat();
     blocks
@@ -426,16 +428,6 @@ fn sub_word(mut data: Vec<u8>) -> Vec<u8> {
     data
 }
 
-fn inv_sub_word(mut data: Vec<u8>) -> Vec<u8> {
-
-    for byte in data.iter_mut() {
-        let nibble_a:usize = (*byte >> 4) as usize;
-        let nibble_b:usize = (*byte & 0x0f) as usize;
-        *byte = INV_S_BOX[nibble_a][nibble_b].clone();
-    }
-    data
-}
-
 fn rcon(data: Vec<u8>) -> Vec<u8> {data}
 
 fn xor_word(a: &Vec<u8>, b: &Vec<u8>) -> Vec<u8> {
@@ -521,11 +513,5 @@ mod tests {
     fn test_inv_mix_columns_shortened_3() {
         let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff];
         assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff]);
-    }
-
-    #[test]
-    fn test_inv_sub_word() {
-        let vec_a: Vec<u8> = vec![0x16, 0x4d, 0xc6, 0x4b, 0x63, 0xda, 0x39, 0x08];
-        assert_eq!(inv_sub_word(vec_a.clone()), vec![ 0xff, 0x65, 0xc7, 0xcc, 0x00, 0x7a, 0x5b, 0xbf]);
     }
 }
