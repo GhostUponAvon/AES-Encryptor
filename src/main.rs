@@ -144,10 +144,7 @@ fn decrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
 
 
 fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
-    let mut blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
-    /*for chunk in file_bytes.chunks(32).collect() {
-        blocks.push(chunk.to_owned());
-    }*/
+    let blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
 
     blocks
 }
@@ -295,7 +292,7 @@ fn g_mul(mut a: u8, mut b: u8) -> u8 {
 
 fn mix_columns(data: Vec<u8>) -> Vec<u8> {
     let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
-    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; 4];
+    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; data.len()];
     let mut pad: usize = 0;
     for (i, column) in data.iter_mut().enumerate() {
         if column.len() < 4 {
@@ -327,7 +324,7 @@ fn mix_columns(data: Vec<u8>) -> Vec<u8> {
                 mixed_data[i][3] = g_mul(0x03, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x02, column[3]);
 
             }
-        }
+        };
 
         if pad > 0 {
             mixed_data[i].truncate(pad);
@@ -339,7 +336,7 @@ fn mix_columns(data: Vec<u8>) -> Vec<u8> {
 
 fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
     let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
-    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; 4];
+    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; data.len()];
     let mut pad: usize = 0;
     for (i, column) in data.iter_mut().enumerate() {
         if column.len() < 4 {
@@ -348,21 +345,20 @@ fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
             column.append(&mut padding);
         }
 
-
         match pad {
             3 => {
-                mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]) ^ g_mul(0x0d, column[2]);
-                mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]) ^ g_mul(0x0b, column[2]);
-                mixed_data[i][2] = g_mul(0x0d, column[0]) ^ g_mul(0x09, column[1]) ^ g_mul(0x0e, column[2]);
+                mixed_data[i][0] = g_mul(0x8d, column[0]) ^ g_mul(0x8d, column[1]) ^ g_mul(0x8d, column[2]);
+                mixed_data[i][1] = g_mul(0xe5, column[0]) ^ g_mul(0x5c, column[1]) ^ g_mul(0x8d, column[2]);
+                mixed_data[i][2] = g_mul(0x34, column[0]) ^ g_mul(0xe5, column[1]) ^ g_mul(0x8d, column[2]);
 
             },
             2 => {
-                mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]);
-                mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]);
+                mixed_data[i][0] = g_mul(0xb9, column[0]) ^ g_mul(0x68, column[1]);
+                mixed_data[i][1] = g_mul(0xd1, column[0]) ^ g_mul(0xb9, column[1]);
 
             },
             1 => {
-                mixed_data[i][0] = g_mul(0x0e, column[0]);
+                mixed_data[i][0] = g_mul(0x8d, column[0]);
 
             },
             _ => {
@@ -371,7 +367,7 @@ fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
                 mixed_data[i][2] = g_mul(0x0d, column[0]) ^ g_mul(0x09, column[1]) ^ g_mul(0x0e, column[2]) ^ g_mul(0x0b, column[3]);
                 mixed_data[i][3] = g_mul(0x0b, column[0]) ^ g_mul(0x0d, column[1]) ^ g_mul(0x09, column[2]) ^ g_mul(0x0e, column[3]);
             }
-        }
+        };
 
         if pad > 0 {
             mixed_data[i].truncate(pad);
@@ -484,6 +480,24 @@ mod tests {
         let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc];
         assert_eq!(mix_columns(vec_a.clone()), vec![65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59]);
     }
+
+    #[test]
+    fn test_mix_columns_len_3() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7];
+        assert_eq!(mix_columns(vec_a.clone()), vec![65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59, 141, 103, 15]);
+    }
+
+    #[test]
+    fn test_mix_columns_len_2() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65];
+        assert_eq!(mix_columns(vec_a.clone()), vec![65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59, 74, 53]);
+    }
+
+    #[test]
+    fn test_mix_columns_len_1() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff];
+        assert_eq!(mix_columns(vec_a.clone()), vec![65, 171, 64, 59, 65, 171, 64, 59, 65, 171, 64, 59, 229]);
+    }
     
     #[test]
     fn test_inv_mix_columns() {
@@ -492,11 +506,22 @@ mod tests {
     }
 
     #[test]
-    fn test_inv_mix_columns_shortened() {
+    fn test_inv_mix_columns_shortened_1() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7];
+        assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7]);
+    }
+
+    #[test]
+    fn test_inv_mix_columns_shortened_2() {
         let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65];
         assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65]);
     }
 
+    #[test]
+    fn test_inv_mix_columns_shortened_3() {
+        let vec_a: Vec<u8> = vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff];
+        assert_eq!(inv_mix_columns(mix_columns(vec_a.clone())), vec![0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff, 0x65, 0xc7, 0xcc, 0xff]);
+    }
 
     #[test]
     fn test_inv_sub_word() {
