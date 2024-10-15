@@ -169,7 +169,7 @@ fn generate_keys(password_hash: String) -> Vec<Vec<u8>> {
         let mut n_key: Vec<Vec<u8>> = current_key.chunks(8).map(|x| x.to_owned()).collect();
         
         //do initial xor
-        n_key[0] = xor_word(&n_key[0], &rcon(sub_word(rot_word(&n_key[7]))));
+        n_key[0] = xor_word(&n_key[0], &rcon(sub_word(rot_word(n_key[7].clone()))));
 
         //then use loop to do the rest
         for i in 1..8 {
@@ -416,7 +416,10 @@ fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
     mix_columns(data.concat())
 }*/
 
-fn rot_word(data: &Vec<u8>) -> Vec<u8> {data.clone()}
+fn rot_word(mut data: Vec<u8>) -> Vec<u8> {
+    data.rotate_left(1);
+    data
+}
 
 fn sub_word(mut data: Vec<u8>) -> Vec<u8> {
 
