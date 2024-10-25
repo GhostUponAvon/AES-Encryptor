@@ -1,9 +1,15 @@
-use std::{env, fs, io::Write, process, sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex}, thread, time::Duration};
+use std::{clone, env, fs, io::Write, process, sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex}, thread, time::Duration};
 use sha256::digest;
 use rayon::prelude::*;
 
 
 static GLOBAL_ENCRYPTION_STATUS: AtomicUsize = AtomicUsize::new(1);
+
+#[derive(Debug, Clone)]
+struct Block {
+    id: usize,
+    bytes: [u8; 16]
+}
 
 
 fn main() {
@@ -21,7 +27,7 @@ fn main() {
     let file_bytes = fs::read(&args[2]).expect("Cannot find the specified file. Please check the file name and path.");
     
     let password: String = digest(&args[3]);
-    let blocks: Vec<Vec<u8>> = input_to_blocks(file_bytes); //each vector stores 16 u8's
+    let blocks: Vec<Block> = input_to_blocks(file_bytes); //each vector stores 16 u8's
 
 
     println!("Starting multi-threaded encryption");
@@ -35,6 +41,8 @@ fn main() {
         path = args[2].strip_suffix(".aes").unwrap().to_owned();
         processed_blocks = decrypt(blocks, password)
     }
+
+    //convert blocks
     fs::write(path, processed_blocks).expect("Failed to write encrypted file to filesystem");
     
     /*
@@ -50,9 +58,9 @@ fn main() {
 
 }
 
-fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
+fn encrypt(blocks: Vec<Block>, password_hash: String) -> Vec<u8> {
     let keys: Vec<Vec<u8>> = generate_keys(password_hash);
-    let encrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
+    let encrypted_blocks: Arc<Mutex<Vec<Block>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
     let length = blocks.len();
     
     let mut stdout = std::io::stdout();
@@ -74,14 +82,19 @@ fn encrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
     print!("\rEncrypting blocks: {:?}/{}", GLOBAL_ENCRYPTION_STATUS.load(Ordering::SeqCst)-1, length);
     let _ = stdout.flush();
     
-    let blocks = Arc::try_unwrap(encrypted_blocks).expect("").into_inner().expect("").concat();
-    blocks
+    let mut blocks = Arc::try_unwrap(encrypted_blocks).expect("").into_inner().expect("");
+    let mut joined_blocks: Vec<Vec<u8>> = Vec::new();
+    for block in blocks.iter_mut() {
+        joined_blocks.push(block.bytes.try_into().unwrap());
+    }
+    joined_blocks.concat()
+    
 }
 
 //Encryption tracking counter isn't working for smaller files
-fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
+fn decrypt(blocks: Vec<Block>, password_hash: String) -> Vec<u8> {
     let mut keys: Vec<Vec<u8>> = generate_keys(password_hash); keys.pop(); keys.reverse();
-    let decrypted_blocks: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
+    let decrypted_blocks: Arc<Mutex<Vec<Block>>> = Arc::new(Mutex::new(Vec::from(Vec::new())));
     let length = blocks.len();
     
     let mut stdout = std::io::stdout();
@@ -101,43 +114,47 @@ fn decrypt(blocks: Vec<Vec<u8>>, password_hash: String) -> Vec<u8> {
         thread::sleep(Duration::from_micros(1))
     }
     
-    let blocks = Arc::try_unwrap(decrypted_blocks).expect("").into_inner().expect("").concat();
-    blocks
+    let mut blocks = Arc::try_unwrap(decrypted_blocks).expect("").into_inner().expect("");
+    let mut joined_blocks: Vec<Vec<u8>> = Vec::new();
+    for block in blocks.iter_mut() {
+        joined_blocks.push(block.bytes.try_into().unwrap());
+    }
+    joined_blocks.concat()
 }
 
 
-fn encrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
+fn encrypt_block(block: &Block, keys: &Vec<Vec<u8>>) -> Block {
+    
     //initial add round key
-
-    let mut block = block.clone();
-    block = add_round_key(keys[0].clone(), block);
+    let mut block: Block = block.clone();
+    block = add_round_key(&keys[0], block);
 
     //round 2 to 14 
     for round in 0..13 {
-        block = add_round_key(keys[round+1].clone(), mix_columns(shift_rows(sub_bytes(block))));
+        block = add_round_key(&keys[round+1], mix_columns(shift_rows(sub_bytes(block))));
     }
     
     //final round minus the mix columns operation
-    block = add_round_key(keys[14].clone(), shift_rows(sub_bytes(block)));
+    block = add_round_key(&keys[14], shift_rows(sub_bytes(block)));
 
     GLOBAL_ENCRYPTION_STATUS.fetch_add(1, Ordering::SeqCst);
     
     block
 }
 
-fn decrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
-    //initial add round key
-
-    let mut block = block.clone();
+fn decrypt_block(block: &Block, keys: &Vec<Vec<u8>>) -> Block {
     
-    block = inv_sub_bytes(inv_shift_rows(add_round_key(keys[0].clone(), block)));
+    //initial add round key
+    let mut block: Block = block.clone();
+    block = inv_sub_bytes(inv_shift_rows(add_round_key(&keys[0], block)));
+    
     //round 2 to 14 
     for round in 0..13 {
-        block = inv_sub_bytes(inv_shift_rows(inv_mix_columns(add_round_key(keys[round+1].clone(), block))));
+        block = inv_sub_bytes(inv_shift_rows(inv_mix_columns(add_round_key(&keys[round+1], block))));
     }
     
     //final round minus the mix columns operation
-    block = add_round_key(keys[14].clone(), block);
+    block = add_round_key(&keys[14], block);
 
     GLOBAL_ENCRYPTION_STATUS.fetch_add(1, Ordering::SeqCst);
     
@@ -145,10 +162,37 @@ fn decrypt_block(block: &Vec<u8>, keys: &Vec<Vec<u8>>) -> Vec<u8> {
 }
 
 
-fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Vec<u8>> {
-    let blocks: Vec<Vec<u8>> = file_bytes.chunks(16).map(|x| x.to_owned()).collect();
+fn input_to_blocks(file_bytes: Vec<u8>) -> Vec<Block> {
+    let mut padding: bool = false;
+    let mut blocks: Vec<Block> = file_bytes.chunks(16).enumerate().map(|(i, x)| { 
+        
+        if x.len() < 16 {
+            let n: [u8;16] = pad_array(x);
+            padding = true;
+            return Block { id: i, bytes: n }
+        }
+        
+        Block { id: i, bytes: x.try_into().unwrap() } 
+    }).collect();
+
+    if padding {
+        blocks.push( Block { id: blocks.len(), bytes: [0x2d, 0x2d, 0x2d, 0x46, 0x49, 0x4c, 0x45, 0x50, 0x41, 0x44, 0x44, 0x45, 0x44, 0x2d, 0x2d, 0x2d] });
+    }
 
     blocks
+}
+// pad array using ANSI X9.23 method
+fn pad_array(slice: &[u8]) -> [u8;16] {
+    let mut n: Vec<u8> = slice.try_into().unwrap();
+    let mut count: u8 = 1;
+    for i in 0..15-slice.len() {
+        n.push(0x00);
+        count+=1;
+    }
+    n.push(count);
+    
+    
+    n.try_into().unwrap()
 }
 
 fn generate_keys(password_hash: String) -> Vec<Vec<u8>> {
@@ -227,51 +271,52 @@ const INV_S_BOX: [[u8; 16]; 16] = [
 
 
 
-fn add_round_key(key: Vec<u8>, data: Vec<u8>) -> Vec<u8> {
-    let mut xor_result: Vec<u8> = Vec::with_capacity(32);
-    for (a, b) in data.iter().zip(key) {
-        xor_result.push(a^b);
+fn add_round_key(key: &Vec<u8>, mut data: Block) -> Block {
+    for (a, b) in data.bytes.iter_mut().zip(key) {
+        *a = *a ^ b;
     }
-    xor_result
+    data
 }
 
-fn sub_bytes(data: Vec<u8>) -> Vec<u8>{
-    let mut sub_result: Vec<u8> = Vec::with_capacity(8);
-    for byte in data {
-        let nibble_a:usize = (byte >> 4) as usize;
-        let nibble_b:usize = (byte & 0x0f) as usize;
-        sub_result.push(S_BOX[nibble_a][nibble_b].clone());
+fn sub_bytes(mut data: Block) -> Block{
+    for byte in data.bytes.iter_mut() {
+        let nibble_a: usize = (*byte >> 4) as usize;
+        let nibble_b: usize = (*byte & 0x0f) as usize;
+        *byte = S_BOX[nibble_a][nibble_b];
     }
-    sub_result
+    data
 }
 
 
 
-fn inv_sub_bytes(data: Vec<u8>) -> Vec<u8>{
-    let mut sub_result: Vec<u8> = Vec::with_capacity(8);
-    for byte in data {
-        let nibble_a:usize = (byte >> 4) as usize;
-        let nibble_b:usize = (byte & 0x0f) as usize;
-        sub_result.push(INV_S_BOX[nibble_a][nibble_b].clone());
+fn inv_sub_bytes(mut data: Block) -> Block{
+    for byte in data.bytes.iter_mut() {
+        let nibble_a:usize = (*byte >> 4) as usize;
+        let nibble_b:usize = (*byte & 0x0f) as usize;
+        *byte = INV_S_BOX[nibble_a][nibble_b];
     }
-    sub_result
+    data
 }
 
 //this function is implemented wrong it needs to be fixed
-fn shift_rows(data: Vec<u8>) -> Vec<u8> {
-    let mut rows: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+fn shift_rows(mut data: Block) -> Block {
+    let mut rows: Vec<Vec<u8>> = data.bytes.chunks(4).map(|x| x.to_owned()).collect();
     for (i, row) in rows.iter_mut().enumerate() {
         row.rotate_left(i);
     }
-    rows.concat()
+    data.bytes = rows.concat().try_into().unwrap();
+
+    data
 }
 
-fn inv_shift_rows(data: Vec<u8>) -> Vec<u8> {
-    let mut rows: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
+fn inv_shift_rows(mut data: Block) -> Block {
+    let mut rows: Vec<Vec<u8>> = data.bytes.chunks(4).map(|x| x.to_owned()).collect();
     for (i, row) in rows.iter_mut().enumerate() {
         row.rotate_right(i);
     }
-    rows.concat()
+    data.bytes = rows.concat().try_into().unwrap();
+
+    data
 }
 
 fn g_mul(mut a: u8, mut b: u8) -> u8 {
@@ -292,11 +337,11 @@ fn g_mul(mut a: u8, mut b: u8) -> u8 {
     p
 }
 
-fn mix_columns(data: Vec<u8>) -> Vec<u8> {
-    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
-    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; data.len()];
+fn mix_columns(mut data: Block) -> Block {
+    let mut split_data: Vec<Vec<u8>> = data.bytes.chunks(4).map(|x| x.to_owned()).collect();
+    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; split_data.len()];
     let mut pad: usize = 0;
-    for (i, column) in data.iter_mut().enumerate() {
+    for (i, column) in split_data.iter_mut().enumerate() {
         if column.len() < 4 {
             pad = column.len();
             let mut padding: Vec<u8> = vec![0; 4-pad];
@@ -333,14 +378,16 @@ fn mix_columns(data: Vec<u8>) -> Vec<u8> {
         }
     }
 
-    mixed_data.concat()
+    data.bytes = mixed_data.concat().try_into().unwrap();
+
+    data
 }
 
-fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
-    let mut data: Vec<Vec<u8>> = data.chunks(4).map(|x| x.to_owned()).collect();
-    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; data.len()];
+fn inv_mix_columns(mut data: Block) -> Block {
+    let mut split_data: Vec<Vec<u8>> = data.bytes.chunks(4).map(|x| x.to_owned()).collect();
+    let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; split_data.len()];
     let mut pad: usize = 0;
-    for (i, column) in data.iter_mut().enumerate() {
+    for (i, column) in split_data.iter_mut().enumerate() {
         if column.len() < 4 {
             pad = column.len();
             let mut padding: Vec<u8> = vec![0; 4-pad];
@@ -376,7 +423,9 @@ fn inv_mix_columns(data: Vec<u8>) -> Vec<u8> {
         }
     }
 
-    mixed_data.concat()
+    data.bytes = mixed_data.concat().try_into().unwrap();
+
+    data
 }
 
 fn rot_word(mut data: Vec<u8>) -> Vec<u8> {
