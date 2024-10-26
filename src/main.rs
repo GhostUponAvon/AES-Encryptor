@@ -359,42 +359,12 @@ impl AES for Block {
     fn mix_columns(&mut self) {
         let mut split_data: Vec<Vec<u8>> = self.bytes.chunks(4).map(|x| x.to_owned()).collect();
         let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; split_data.len()];
-        let mut pad: usize = 0;
         for (i, column) in split_data.iter_mut().enumerate() {
-            if column.len() < 4 {
-                pad = column.len();
-                let mut padding: Vec<u8> = vec![0; 4-pad];
-                column.append(&mut padding);
-            }
-    
-            match pad {
-                3 => {
-                    mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]) ^ g_mul(0x01, column[2]);
-                    mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]) ^ g_mul(0x03, column[2]);
-                    mixed_data[i][2] = g_mul(0x01, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x02, column[2]);
-    
-                },
-                2 => {
-                    mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]);
-                    mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]);
-    
-                },
-                1 => {
-                    mixed_data[i][0] = g_mul(0x02, column[0]);
-    
-                },
-                _ => {
-                    mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x01, column[3]);
-                    mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]) ^ g_mul(0x03, column[2]) ^ g_mul(0x01, column[3]);
-                    mixed_data[i][2] = g_mul(0x01, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x02, column[2]) ^ g_mul(0x03, column[3]);
-                    mixed_data[i][3] = g_mul(0x03, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x02, column[3]);
-    
-                }
-            };
-    
-            if pad > 0 {
-                mixed_data[i].truncate(pad);
-            }
+            
+            mixed_data[i][0] = g_mul(0x02, column[0]) ^ g_mul(0x03, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x01, column[3]);
+            mixed_data[i][1] = g_mul(0x01, column[0]) ^ g_mul(0x02, column[1]) ^ g_mul(0x03, column[2]) ^ g_mul(0x01, column[3]);
+            mixed_data[i][2] = g_mul(0x01, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x02, column[2]) ^ g_mul(0x03, column[3]);
+            mixed_data[i][3] = g_mul(0x03, column[0]) ^ g_mul(0x01, column[1]) ^ g_mul(0x01, column[2]) ^ g_mul(0x02, column[3]);
         }
     
         self.bytes = mixed_data.concat().try_into().unwrap();
@@ -403,41 +373,12 @@ impl AES for Block {
     fn inv_mix_columns(&mut self) {
         let mut split_data: Vec<Vec<u8>> = self.bytes.chunks(4).map(|x| x.to_owned()).collect();
         let mut mixed_data: Vec<Vec<u8>> = vec![vec![0,0,0,0]; split_data.len()];
-        let mut pad: usize = 0;
         for (i, column) in split_data.iter_mut().enumerate() {
-            if column.len() < 4 {
-                pad = column.len();
-                let mut padding: Vec<u8> = vec![0; 4-pad];
-                column.append(&mut padding);
-            }
-    
-            match pad {
-                3 => {
-                    mixed_data[i][0] = g_mul(0x8d, column[0]) ^ g_mul(0x8d, column[1]) ^ g_mul(0x8d, column[2]);
-                    mixed_data[i][1] = g_mul(0xe5, column[0]) ^ g_mul(0x5c, column[1]) ^ g_mul(0x8d, column[2]);
-                    mixed_data[i][2] = g_mul(0x34, column[0]) ^ g_mul(0xe5, column[1]) ^ g_mul(0x8d, column[2]);
-    
-                },
-                2 => {
-                    mixed_data[i][0] = g_mul(0xb9, column[0]) ^ g_mul(0x68, column[1]);
-                    mixed_data[i][1] = g_mul(0xd1, column[0]) ^ g_mul(0xb9, column[1]);
-    
-                },
-                1 => {
-                    mixed_data[i][0] = g_mul(0x8d, column[0]);
-    
-                },
-                _ => {
-                    mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]) ^ g_mul(0x0d, column[2]) ^ g_mul(0x09, column[3]);
-                    mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]) ^ g_mul(0x0b, column[2]) ^ g_mul(0x0d, column[3]);
-                    mixed_data[i][2] = g_mul(0x0d, column[0]) ^ g_mul(0x09, column[1]) ^ g_mul(0x0e, column[2]) ^ g_mul(0x0b, column[3]);
-                    mixed_data[i][3] = g_mul(0x0b, column[0]) ^ g_mul(0x0d, column[1]) ^ g_mul(0x09, column[2]) ^ g_mul(0x0e, column[3]);
-                }
-            };
-    
-            if pad > 0 {
-                mixed_data[i].truncate(pad);
-            }
+            
+            mixed_data[i][0] = g_mul(0x0e, column[0]) ^ g_mul(0x0b, column[1]) ^ g_mul(0x0d, column[2]) ^ g_mul(0x09, column[3]);
+            mixed_data[i][1] = g_mul(0x09, column[0]) ^ g_mul(0x0e, column[1]) ^ g_mul(0x0b, column[2]) ^ g_mul(0x0d, column[3]);
+            mixed_data[i][2] = g_mul(0x0d, column[0]) ^ g_mul(0x09, column[1]) ^ g_mul(0x0e, column[2]) ^ g_mul(0x0b, column[3]);
+            mixed_data[i][3] = g_mul(0x0b, column[0]) ^ g_mul(0x0d, column[1]) ^ g_mul(0x09, column[2]) ^ g_mul(0x0e, column[3]);
         }
     
         self.bytes = mixed_data.concat().try_into().unwrap();
